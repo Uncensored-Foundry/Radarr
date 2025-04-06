@@ -106,6 +106,7 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Enable Extra Platform Support
+        shell: bash
         run: |
           BUNDLEDVERSIONS=$(find $DOTNET_ROOT -name Microsoft.NETCoreSdk.BundledVersions.props | grep $DOTNET_VERSION)
           echo $BUNDLEDVERSIONS
