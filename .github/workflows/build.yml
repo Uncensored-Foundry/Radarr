@@ -24,8 +24,6 @@ env:
   ARTIFACTS_FOLDER: "./_artifacts"
   TESTS_FOLDER: "./_tests"
   MAJOR_VERSION: "5.22.2"
-  SENTRY_ORG: "servarr"
-  SENTRY_URL: "https://sentry.servarr.com"
 
 jobs:
   setup:
@@ -131,49 +129,49 @@ jobs:
 
       - name: Upload Backend Artifact
         if: matrix.os == 'Windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}Backend
           path: ${{ env.OUTPUT_FOLDER }}
 
       - name: Upload Test Packages
         if: matrix.os == 'Windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: win-x64-tests
           path: ${{ env.TESTS_FOLDER }}/net6.0/win-x64/publish
 
       - name: Upload Linux x64 Test Package
         if: matrix.os == 'Windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-x64-tests
           path: ${{ env.TESTS_FOLDER }}/net6.0/linux-x64/publish
 
       - name: Upload Linux x86 Test Package
         if: matrix.os == 'Windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-x86-tests
           path: ${{ env.TESTS_FOLDER }}/net6.0/linux-x86/publish
 
       - name: Upload Linux Musl x64 Test Package
         if: matrix.os == 'Windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-musl-x64-tests
           path: ${{ env.TESTS_FOLDER }}/net6.0/linux-musl-x64/publish
 
       - name: Upload FreeBSD x64 Test Package
         if: matrix.os == 'Windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: freebsd-x64-tests
           path: ${{ env.TESTS_FOLDER }}/net6.0/freebsd-x64/publish
 
       - name: Upload OSX x64 Test Package
         if: matrix.os == 'Windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: osx-x64-tests
           path: ${{ env.TESTS_FOLDER }}/net6.0/osx-x64/publish
@@ -219,7 +217,7 @@ jobs:
 
       - name: Upload Frontend Artifact
         if: matrix.os == 'Windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}Frontend
           path: ${{ env.OUTPUT_FOLDER }}
@@ -235,13 +233,13 @@ jobs:
           fetch-depth: 1
 
       - name: Download Backend
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: WindowsBackend
           path: _output
 
       - name: Download Frontend
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: WindowsFrontend
           path: _output
@@ -254,7 +252,7 @@ jobs:
         shell: bash
 
       - name: Upload Installer Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: WindowsInstaller
           path: ${{ runner.temp }}/Radarr.*.windows-core-*-installer.exe
@@ -270,13 +268,13 @@ jobs:
           fetch-depth: 1
 
       - name: Download Backend
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: WindowsBackend
           path: _output
 
       - name: Download Frontend
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: WindowsFrontend
           path: _output
@@ -359,7 +357,7 @@ jobs:
           tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.freebsd-core-x64.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/freebsd-x64/net6.0 .
 
       - name: Upload Package Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Packages
           path: ${{ runner.temp }}/Radarr.${{ needs.setup.outputs.version }}.*
