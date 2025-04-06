@@ -108,13 +108,27 @@ jobs:
       - name: Enable Extra Platform Support
         shell: bash
         run: |
-          BUNDLEDVERSIONS=$(find $DOTNET_ROOT -name Microsoft.NETCoreSdk.BundledVersions.props | grep $DOTNET_VERSION)
-          echo $BUNDLEDVERSIONS
-          if grep -q freebsd-x64 $BUNDLEDVERSIONS; then
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # Windows uses backslashes in paths
+            DOTNET_ROOT_PATH=$(echo "$DOTNET_ROOT" | sed 's/\\/\//g')
+            BUNDLEDVERSIONS=$(find "$DOTNET_ROOT_PATH" -name Microsoft.NETCoreSdk.BundledVersions.props 2>/dev/null | grep -i "$DOTNET_VERSION" || echo "")
+          else
+            # Linux/Mac use forward slashes
+            BUNDLEDVERSIONS=$(find "$DOTNET_ROOT" -name Microsoft.NETCoreSdk.BundledVersions.props 2>/dev/null | grep "$DOTNET_VERSION" || echo "")
+          fi
+
+          if [[ -z "$BUNDLEDVERSIONS" ]]; then
+            echo "Could not find BundledVersions.props for .NET $DOTNET_VERSION"
+            echo "DOTNET_ROOT=$DOTNET_ROOT"
+            exit 0
+          fi
+
+          echo "Found BundledVersions at: $BUNDLEDVERSIONS"
+          if grep -q freebsd-x64 "$BUNDLEDVERSIONS"; then
             echo "Extra platforms already enabled"
           else
             echo "Enabling extra platform support"
-            sed -i.ORI 's/osx-x64/osx-x64;freebsd-x64;linux-x86/' $BUNDLEDVERSIONS
+            sed -i.ORI 's/osx-x64/osx-x64;freebsd-x64;linux-x86/' "$BUNDLEDVERSIONS"
           fi
 
       - name: Build Radarr Backend
