@@ -6,4 +6,3 @@ was altered to block Russian IPs. Politically motivated GeoBlocking violates the
 Refer to the [original repo](https://github.com/Radarr/Radarr) and [website](https://radarr.video)
 for all install instructions and documentation.
 
-
