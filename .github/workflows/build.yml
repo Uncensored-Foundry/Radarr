@@ -1,0 +1,365 @@
+name: Build Radarr
+
+on:
+  push:
+    branches:
+      - develop
+      - master
+    paths-ignore:
+      - ".github/**"
+      - "src/Radarr.Api.*/openapi.json"
+  pull_request:
+    branches:
+      - develop
+    paths-ignore:
+      - ".github/**"
+      - "src/NzbDrone.Core/Localization/Core"
+      - "src/Radarr.Api.*/openapi.json"
+
+env:
+  DOTNET_VERSION: "6.0.427"
+  NODE_VERSION: "20.x"
+  INNO_VERSION: "6.2.2"
+  OUTPUT_FOLDER: "./_output"
+  ARTIFACTS_FOLDER: "./_artifacts"
+  TESTS_FOLDER: "./_tests"
+  MAJOR_VERSION: "5.22.2"
+  SENTRY_ORG: "servarr"
+  SENTRY_URL: "https://sentry.servarr.com"
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.set_version.outputs.version }}
+      backend_update: ${{ steps.check_backend.outputs.backend_update }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: true
+
+      - name: Generate minor version
+        id: minor_version
+        run: |
+          # Generate a unique number based on the current date and a counter
+          MINOR_VERSION=$(date +%Y%m%d%H%M)
+          echo "MINOR_VERSION=${MINOR_VERSION}" >> $GITHUB_ENV
+          echo "MINOR_VERSION=${MINOR_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Set version
+        id: set_version
+        run: |
+          RADARR_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}"
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          if [[ $GITHUB_REF == refs/pull/* ]]; then
+            BRANCH_NAME=${GITHUB_HEAD_REF}
+          fi
+          BUILD_NAME="${BRANCH_NAME}.${RADARR_VERSION}"
+          echo "RADARR_VERSION=${RADARR_VERSION}" >> $GITHUB_ENV
+          echo "BUILD_NAME=${BUILD_NAME}" >> $GITHUB_ENV
+          echo "version=${RADARR_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Check for backend file changes
+        id: check_backend
+        run: |
+          if [[ $GITHUB_EVENT_NAME == "pull_request" ]]; then
+            git fetch origin develop
+            CHANGED_FILES=$(git diff origin/develop...HEAD --name-only | grep -E "^(src/|.github/workflows/)")
+            if [[ -n "$CHANGED_FILES" ]]; then
+              echo "backend_update=true" >> $GITHUB_OUTPUT
+            else
+              echo "backend_update=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "backend_update=true" >> $GITHUB_OUTPUT
+          fi
+
+  build_backend:
+    name: Build Backend (${{ matrix.os }})
+    needs: setup
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: Linux
+            runner: ubuntu-22.04
+            enable_analysis: "true"
+          - os: Mac
+            runner: macos-13
+            enable_analysis: "false"
+          - os: Windows
+            runner: windows-2022
+            enable_analysis: "false"
+    env:
+      EnableAnalyzers: ${{ matrix.enable_analysis }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Enable Extra Platform Support
+        run: |
+          BUNDLEDVERSIONS=$(find $DOTNET_ROOT -name Microsoft.NETCoreSdk.BundledVersions.props | grep $DOTNET_VERSION)
+          echo $BUNDLEDVERSIONS
+          if grep -q freebsd-x64 $BUNDLEDVERSIONS; then
+            echo "Extra platforms already enabled"
+          else
+            echo "Enabling extra platform support"
+            sed -i.ORI 's/osx-x64/osx-x64;freebsd-x64;linux-x86/' $BUNDLEDVERSIONS
+          fi
+
+      - name: Build Radarr Backend
+        run: ./build.sh --backend --enable-extra-platforms
+
+      - name: Clean up intermediate output
+        if: matrix.os != 'Windows'
+        run: |
+          find ${OUTPUT_FOLDER} -type f ! -path "*/publish/*" -exec rm -rf {} \;
+          find ${OUTPUT_FOLDER} -depth -empty -type d -exec rm -r "{}" \;
+          find ${TESTS_FOLDER} -type f ! -path "*/publish/*" -exec rm -rf {} \;
+          find ${TESTS_FOLDER} -depth -empty -type d -exec rm -r "{}" \;
+
+      - name: Upload Backend Artifact
+        if: matrix.os == 'Windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.os }}Backend
+          path: ${{ env.OUTPUT_FOLDER }}
+
+      - name: Upload Test Packages
+        if: matrix.os == 'Windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: win-x64-tests
+          path: ${{ env.TESTS_FOLDER }}/net6.0/win-x64/publish
+
+      - name: Upload Linux x64 Test Package
+        if: matrix.os == 'Windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-x64-tests
+          path: ${{ env.TESTS_FOLDER }}/net6.0/linux-x64/publish
+
+      - name: Upload Linux x86 Test Package
+        if: matrix.os == 'Windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-x86-tests
+          path: ${{ env.TESTS_FOLDER }}/net6.0/linux-x86/publish
+
+      - name: Upload Linux Musl x64 Test Package
+        if: matrix.os == 'Windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-musl-x64-tests
+          path: ${{ env.TESTS_FOLDER }}/net6.0/linux-musl-x64/publish
+
+      - name: Upload FreeBSD x64 Test Package
+        if: matrix.os == 'Windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: freebsd-x64-tests
+          path: ${{ env.TESTS_FOLDER }}/net6.0/freebsd-x64/publish
+
+      - name: Upload OSX x64 Test Package
+        if: matrix.os == 'Windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: osx-x64-tests
+          path: ${{ env.TESTS_FOLDER }}/net6.0/osx-x64/publish
+
+  build_frontend:
+    name: Build Frontend (${{ matrix.os }})
+    needs: setup
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: Linux
+            runner: ubuntu-22.04
+          - os: Mac
+            runner: macos-13
+          - os: Windows
+            runner: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.yarn-cache
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Build Radarr Frontend
+        run: ./build.sh --frontend
+        env:
+          FORCE_COLOR: 0
+          YARN_CACHE_FOLDER: ~/.yarn-cache
+
+      - name: Upload Frontend Artifact
+        if: matrix.os == 'Windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.os }}Frontend
+          path: ${{ env.OUTPUT_FOLDER }}
+
+  installer:
+    name: Create Windows Installer
+    needs: [build_backend, build_frontend]
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download Backend
+        uses: actions/download-artifact@v3
+        with:
+          name: WindowsBackend
+          path: _output
+
+      - name: Download Frontend
+        uses: actions/download-artifact@v3
+        with:
+          name: WindowsFrontend
+          path: _output
+
+      - name: Create Installers
+        run: |
+          ./build.sh --packages --installer
+          cp distribution/windows/setup/output/Radarr.*win-x64.exe ${RUNNER_TEMP}/Radarr.${BUILD_NAME}.windows-core-x64-installer.exe
+          cp distribution/windows/setup/output/Radarr.*win-x86.exe ${RUNNER_TEMP}/Radarr.${BUILD_NAME}.windows-core-x86-installer.exe
+        shell: bash
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: WindowsInstaller
+          path: ${{ runner.temp }}/Radarr.*.windows-core-*-installer.exe
+
+  packages:
+    name: Create Standard Packages
+    needs: [build_backend, build_frontend]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download Backend
+        uses: actions/download-artifact@v3
+        with:
+          name: WindowsBackend
+          path: _output
+
+      - name: Download Frontend
+        uses: actions/download-artifact@v3
+        with:
+          name: WindowsFrontend
+          path: _output
+
+      - name: Create Packages
+        run: ./build.sh --packages --enable-extra-platforms
+
+      - name: Set executable bits
+        run: |
+          find . -name "ffprobe" -exec chmod a+x {} \;
+          find . -name "Radarr" -exec chmod a+x {} \;
+          find . -name "Radarr.Update" -exec chmod a+x {} \;
+
+      - name: Create win-x64 zip
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: ${{ runner.temp }}/Radarr.${{ needs.setup.outputs.version }}.windows-core-x64.zip
+          directory: ${{ env.ARTIFACTS_FOLDER }}/win-x64/net6.0
+
+      - name: Create win-x86 zip
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: ${{ runner.temp }}/Radarr.${{ needs.setup.outputs.version }}.windows-core-x86.zip
+          directory: ${{ env.ARTIFACTS_FOLDER }}/win-x86/net6.0
+
+      - name: Create osx-x64 app zip
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: ${{ runner.temp }}/Radarr.${{ needs.setup.outputs.version }}.osx-app-core-x64.zip
+          directory: ${{ env.ARTIFACTS_FOLDER }}/osx-x64-app/net6.0
+
+      - name: Create osx-x64 tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.osx-core-x64.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/osx-x64/net6.0 .
+
+      - name: Create osx-arm64 app zip
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: ${{ runner.temp }}/Radarr.${{ needs.setup.outputs.version }}.osx-app-core-arm64.zip
+          directory: ${{ env.ARTIFACTS_FOLDER }}/osx-arm64-app/net6.0
+
+      - name: Create osx-arm64 tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.osx-core-arm64.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/osx-arm64/net6.0 .
+
+      - name: Create linux-x64 tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.linux-core-x64.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/linux-x64/net6.0 .
+
+      - name: Create linux-musl-x64 tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.linux-musl-core-x64.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/linux-musl-x64/net6.0 .
+
+      - name: Create linux-x86 tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.linux-core-x86.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/linux-x86/net6.0 .
+
+      - name: Create linux-arm tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.linux-core-arm.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/linux-arm/net6.0 .
+
+      - name: Create linux-musl-arm tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.linux-musl-core-arm.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/linux-musl-arm/net6.0 .
+
+      - name: Create linux-arm64 tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.linux-core-arm64.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/linux-arm64/net6.0 .
+
+      - name: Create linux-musl-arm64 tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.linux-musl-core-arm64.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/linux-musl-arm64/net6.0 .
+
+      - name: Create freebsd-x64 tar
+        run: |
+          tar -czf $RUNNER_TEMP/Radarr.${{ needs.setup.outputs.version }}.freebsd-core-x64.tar.gz -C ${{ env.ARTIFACTS_FOLDER }}/freebsd-x64/net6.0 .
+
+      - name: Upload Package Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: Packages
+          path: ${{ runner.temp }}/Radarr.${{ needs.setup.outputs.version }}.*
